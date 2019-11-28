@@ -5,6 +5,11 @@
 *.suo
 *.user
 *.sln.docstates
+*.pubxml
+
+local-runner/
+scripts/
+strategies/
 
 # Build results
 

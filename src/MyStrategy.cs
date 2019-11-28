@@ -10,6 +10,8 @@ namespace AiCup2019
         }
         public UnitAction GetAction(Unit unit, Game game, Debug debug)
         {
+            debug.Draw(new CustomData.Log("Version 1"));
+
             Unit? nearestEnemy = null;
             foreach (var other in game.Units)
             {
@@ -41,7 +43,7 @@ namespace AiCup2019
             {
                 targetPos = nearestEnemy.Value.Position;
             }
-            debug.Draw(new CustomData.Log("Target pos: " + targetPos));
+
             Vec2Double aim = new Vec2Double(0, 0);
             if (nearestEnemy.HasValue)
             {
