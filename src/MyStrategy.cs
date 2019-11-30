@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using AiCup2019.Model;
 
 namespace AiCup2019
@@ -10,24 +9,7 @@ namespace AiCup2019
         {
             debug.Draw(new CustomData.Log("Version 2"));
 
-            LootBox? nearestWeapon = null;
-            var hasLight = game.LootBoxes.Any(l => l.Item is Item.Weapon w && w.WeaponType != WeaponType.RocketLauncher);
-            foreach (var lootBox in game.LootBoxes)
-            {
-                if (lootBox.Item is Item.Weapon w)
-                {
-                    if (hasLight && w.WeaponType == WeaponType.RocketLauncher)
-                    {
-                        continue;
-                    }
-
-                    if (!nearestWeapon.HasValue || 
-                        DistanceSqr(unit.Position, lootBox.Position) < DistanceSqr(unit.Position, nearestWeapon.Value.Position))
-                    {
-                        nearestWeapon = lootBox;
-                    }
-                }
-            }
+            //////////////////////////////
 
             Unit? nearestEnemy = null;
             foreach (var other in game.Units)
@@ -48,80 +30,73 @@ namespace AiCup2019
             {
                 return EmptyAction();
             }
-
             var enemy = nearestEnemy.Value;
 
-            Vec2Double targetPos = unit.Position;
-            if (!unit.Weapon.HasValue && nearestWeapon.HasValue)
+            //////////////////////////////
+
+            if (unit.Weapon == null)
             {
-                targetPos = nearestWeapon.Value.Position;
+                LootBox? nearestWeapon = null;
+                foreach (var lootBox in game.LootBoxes)
+                {
+                    if (lootBox.Item is Item.Weapon w)
+                    {
+                        if (!nearestWeapon.HasValue ||
+                            DistanceSqr(unit.Position, lootBox.Position) < DistanceSqr(unit.Position, nearestWeapon.Value.Position))
+                        {
+                            nearestWeapon = lootBox;
+                        }
+                    }
+                }
+
+                var weaponPosition = nearestWeapon?.Position ?? unit.Position;
+                return new UnitAction
+                {
+                    Velocity = GetMaxSpeed(unit.Position, weaponPosition, game.Properties.UnitMaxHorizontalSpeed),
+                    Jump = NeedJump(unit.Position, weaponPosition, game.Level.Tiles),
+                    JumpDown = !NeedJump(unit.Position, weaponPosition, game.Level.Tiles)
+                };
+            }
+
+            //////////////////////////////
+
+            UnitAction action = new UnitAction();
+            action.Velocity = GetMaxSpeed(unit.Position, enemy.Position, game.Properties.UnitMaxHorizontalSpeed);
+            action.Jump = NeedJump(unit.Position, enemy.Position, game.Level.Tiles);
+            action.JumpDown = !NeedJump(unit.Position, enemy.Position, game.Level.Tiles);
+
+            action.Aim = new Vec2Double(enemy.Position.X - unit.Position.X, enemy.Position.Y - unit.Position.Y);
+            action.Shoot = true;
+            if (Math.Abs(unit.Position.X - enemy.Position.X) >
+                Math.Abs(unit.Position.Y - enemy.Position.Y))
+            {
+                double startX = unit.Position.X < enemy.Position.X ? unit.Position.X : enemy.Position.X;
+                double endX = unit.Position.X < enemy.Position.X ? enemy.Position.X : unit.Position.X;
+                for (double x = startX + 0.5; x < endX; x += 0.5)
+                {
+                    var y = Y(unit.Position, enemy.Position, x);
+                    if (game.Level.Tiles[(int) Math.Floor(x)][(int) Math.Floor(y)] == Tile.Wall)
+                    {
+                        action.Shoot = false;
+                    }
+                }
             }
             else
             {
-                targetPos = enemy.Position;
-            }
-
-            bool jump = targetPos.Y > unit.Position.Y;
-            if (targetPos.X > unit.Position.X && game.Level.Tiles[(int)(unit.Position.X + 1)][(int)(unit.Position.Y)] == Tile.Wall)
-            {
-                jump = true;
-            }
-            if (targetPos.X < unit.Position.X && game.Level.Tiles[(int)(unit.Position.X - 1)][(int)(unit.Position.Y)] == Tile.Wall)
-            {
-                jump = true;
-            }
-
-            UnitAction action = new UnitAction();
-
-            action.Velocity = targetPos.X > unit.Position.X
-                ? game.Properties.UnitMaxHorizontalSpeed
-                : -game.Properties.UnitMaxHorizontalSpeed;
-
-            action.Jump = jump;
-            action.JumpDown = !jump;
-            action.Aim = new Vec2Double(enemy.Position.X - unit.Position.X, enemy.Position.Y - unit.Position.Y); ;
-
-            action.Shoot = false;
-            if (unit.Weapon.HasValue)
-            {
-                action.Shoot = true;
-                if (Math.Abs(unit.Position.X - enemy.Position.X) >
-                    Math.Abs(unit.Position.Y - enemy.Position.Y))
+                double startY = unit.Position.Y < enemy.Position.Y ? unit.Position.Y : enemy.Position.Y;
+                double endY = unit.Position.Y < enemy.Position.Y ? enemy.Position.Y : unit.Position.Y;
+                for (double y = startY + 0.5; y < endY; y += 0.5)
                 {
-                    double startX = unit.Position.X < enemy.Position.X ? unit.Position.X : enemy.Position.X;
-                    double endX = unit.Position.X < enemy.Position.X ? enemy.Position.X : unit.Position.X;
-                    for (double x = startX + 0.5; x < endX; x += 0.5)
+                    var x = X(unit.Position, enemy.Position, y);
+                    if (game.Level.Tiles[(int)Math.Floor(x)][(int)Math.Floor(y)] == Tile.Wall)
                     {
-                        var y = Y(unit.Position, enemy.Position, x);
-                        if (game.Level.Tiles[(int) Math.Floor(x)][(int) Math.Floor(y)] == Tile.Wall)
-                        {
-                            action.Shoot = false;
-                        }
-                    }
-                }
-                else
-                {
-                    double startY = unit.Position.Y < enemy.Position.Y ? unit.Position.Y : enemy.Position.Y;
-                    double endY = unit.Position.Y < enemy.Position.Y ? enemy.Position.Y : unit.Position.Y;
-                    for (double y = startY + 0.5; y < endY; y += 0.5)
-                    {
-                        var x = X(unit.Position, enemy.Position, y);
-                        if (game.Level.Tiles[(int)Math.Floor(x)][(int)Math.Floor(y)] == Tile.Wall)
-                        {
-                            action.Shoot = false;
-                        }
+                        action.Shoot = false;
                     }
                 }
             }
 
-            action.SwapWeapon = nearestWeapon.HasValue &&
-                                unit.Weapon.HasValue &&
-                                DistanceSqr(unit.Position, nearestWeapon.Value.Position) < 10 &&
-                                (unit.Weapon.Value.Typ == WeaponType.RocketLauncher && ((Item.Weapon)nearestWeapon.Value.Item).WeaponType != WeaponType.RocketLauncher ||
-                                 unit.Weapon.Value.Typ == WeaponType.AssaultRifle && ((Item.Weapon)nearestWeapon.Value.Item).WeaponType == WeaponType.Pistol);
-
+            action.SwapWeapon = false;
             action.PlantMine = false;
-
             return action;
         }
 
@@ -137,6 +112,27 @@ namespace AiCup2019
                 Shoot = false,
                 SwapWeapon = false
             };
+        }
+
+        private static double GetMaxSpeed(Vec2Double current, Vec2Double target, double maxSpeed)
+        {
+            return target.X > current.X
+                ? maxSpeed
+                : -maxSpeed;
+        }
+
+        private static bool NeedJump(Vec2Double current, Vec2Double target, Tile[][] tiles)
+        {
+            if (target.X > current.X && tiles[(int)(current.X + 1)][(int)(current.Y)] == Tile.Wall)
+            {
+                return true;
+            }
+            if (target.X < current.X && tiles[(int)(current.X - 1)][(int)(current.Y)] == Tile.Wall)
+            {
+                return true;
+            }
+
+            return target.Y > current.Y;
         }
 
         private static double DistanceSqr(Vec2Double a, Vec2Double b)
