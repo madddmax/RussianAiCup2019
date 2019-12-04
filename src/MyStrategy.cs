@@ -11,7 +11,7 @@ namespace AiCup2019
 
         public UnitAction GetAction(Unit unit, Game game, Debug debug)
         {
-            debug.Draw(new CustomData.Log("Version 5"));
+            debug.Draw(new CustomData.Log("Version 6"));
 
             if (game.CurrentTick == 0)
             {
@@ -134,9 +134,8 @@ namespace AiCup2019
                     action.JumpDown = !NeedJump(unit.Position, escapePosition, game.Level.Tiles);
                 }
 
-                if (unit.Mines > 0 &&
-                    Math.Abs(escapePosition.X - _firstUnitPos.X) < 0.2 &&
-                    Math.Abs(escapePosition.Y - _firstUnitPos.Y) < 0.2 &&
+                var anyHealth = game.LootBoxes.Any(l => l.Item is Item.HealthPack);
+                if (unit.Mines > 0 && !anyHealth &&
                     DistanceSqr(escapePosition, unit.Position) > 8)
                 {
                     action.PlantMine = true;
@@ -151,11 +150,15 @@ namespace AiCup2019
 
             action.Aim = new Vec2Double(enemy.Position.X - unit.Position.X, enemy.Position.Y - unit.Position.Y);
 
-            action.Shoot = false;
-            action.Shoot = IsPossibleShoot(unit.Position, enemy.Position, game.Level.Tiles) ||
-                           IsPossibleShoot(unit.Position, new Vec2Double(enemy.Position.X, enemy.Position.Y + 1.8), game.Level.Tiles);
+            var unitWeaponPos = unit.Weapon.Value.Typ != WeaponType.RocketLauncher
+                ? new Vec2Double(unit.Position.X, unit.Position.Y + game.Properties.UnitSize.Y / 2)
+                : unit.Position;
+
+            action.Shoot = IsPossibleShoot(unitWeaponPos, enemy.Position, game.Level.Tiles) ||
+                           IsPossibleShoot(unitWeaponPos, new Vec2Double(enemy.Position.X, enemy.Position.Y + game.Properties.UnitSize.Y), game.Level.Tiles);
 
             action.SwapWeapon = false;
+            //action.Reload = false;
             //action.PlantMine = false;
             return action;
         }
