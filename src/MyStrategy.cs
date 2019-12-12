@@ -8,6 +8,7 @@ namespace AiCup2019
     public class MyStrategy
     {
         private Vec2Double _firstUnitPos = new Vec2Double(0, 0);
+        private Vec2Double _prevAim = new Vec2Double(0, 0);
 
         public UnitAction GetAction(Unit unit, Game game, Debug debug)
         {
@@ -100,7 +101,7 @@ namespace AiCup2019
 
             UnitAction action = new UnitAction();
 
-            if (unit.Health < game.Properties.UnitMaxHealth)
+            if (unit.Health < game.Properties.UnitMaxHealth && unit.Health < enemy.Health)
             {
                 LootBox? nearestHealth = null;
                 foreach (var lootBox in game.LootBoxes)
@@ -141,15 +142,27 @@ namespace AiCup2019
                 action.JumpDown = !NeedJump(unit.Position, enemy.Position, game.Level.Tiles);
             }
 
-            action.Aim = new Vec2Double(enemy.Position.X - unit.Position.X, enemy.Position.Y - unit.Position.Y);
-
             var unitWeaponPos = unit.Weapon.Value.Typ != WeaponType.RocketLauncher
                 ? new Vec2Double(unit.Position.X, unit.Position.Y + game.Properties.UnitSize.Y / 2)
                 : unit.Position;
 
-            action.Shoot = IsPossibleShoot(unitWeaponPos, enemy.Position, game.Level.Tiles) ||
-                           IsPossibleShoot(unitWeaponPos, new Vec2Double(enemy.Position.X, enemy.Position.Y + game.Properties.UnitSize.Y), game.Level.Tiles);
+            bool isPossibleShoot = (unit.Weapon.Value.FireTimer == null || unit.Weapon.Value.FireTimer < 0.02) &&
+                                   (IsPossibleShoot(unitWeaponPos, new Vec2Double(enemy.Position.X - game.Properties.UnitSize.X / 2, enemy.Position.Y), game.Level.Tiles) ||
+                                    IsPossibleShoot(unitWeaponPos, new Vec2Double(enemy.Position.X + game.Properties.UnitSize.X / 2, enemy.Position.Y), game.Level.Tiles) ||
+                                    IsPossibleShoot(unitWeaponPos, new Vec2Double(enemy.Position.X - game.Properties.UnitSize.X / 2, enemy.Position.Y + game.Properties.UnitSize.Y), game.Level.Tiles) ||
+                                    IsPossibleShoot(unitWeaponPos, new Vec2Double(enemy.Position.X + game.Properties.UnitSize.X / 2, enemy.Position.Y + game.Properties.UnitSize.Y), game.Level.Tiles));
 
+            if (isPossibleShoot)
+            {
+                action.Aim = _prevAim;
+            }
+            else
+            {
+                action.Aim = new Vec2Double(enemy.Position.X - unit.Position.X, enemy.Position.Y - unit.Position.Y);
+                _prevAim = action.Aim;
+            }
+
+            action.Shoot = isPossibleShoot;
             action.SwapWeapon = false;
             //action.Reload = false;
             //action.PlantMine = false;
