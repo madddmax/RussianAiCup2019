@@ -11,7 +11,7 @@ namespace AiCup2019
 
         public UnitAction GetAction(Unit unit, Game game, Debug debug)
         {
-            debug.Draw(new CustomData.Log("Version 6"));
+            debug.Draw(new CustomData.Log("Version 7"));
 
             if (game.CurrentTick == 0)
             {
@@ -132,13 +132,6 @@ namespace AiCup2019
                     action.Velocity = GetMaxSpeed(unit.Position, escapePosition, game.Properties.UnitMaxHorizontalSpeed);
                     action.Jump = NeedJump(unit.Position, escapePosition, game.Level.Tiles);
                     action.JumpDown = !NeedJump(unit.Position, escapePosition, game.Level.Tiles);
-                }
-
-                var anyHealth = game.LootBoxes.Any(l => l.Item is Item.HealthPack);
-                if (unit.Mines > 0 && !anyHealth &&
-                    DistanceSqr(escapePosition, unit.Position) > 8)
-                {
-                    action.PlantMine = true;
                 }
             }
             else
