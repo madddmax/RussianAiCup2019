@@ -74,27 +74,28 @@ namespace AiCup2019
             //////////////////////////////
 
             var enemyBullets = game.Bullets.Where(b => b.UnitId != unit.Id).ToList();
-            for (int t = 0; t < 30; t++)
+            List<List<BulletNode>> bulletMap = new List<List<BulletNode>>();
+            foreach (var bullet in enemyBullets)
             {
-                List<Bullet> removedBullets = new List<Bullet>();
-                foreach (var bullet in enemyBullets)
+                var bulletNodes = new List<BulletNode>();
+                for (int t = 0; t < 120; t++)
                 {
                     var x = bullet.Position.X + t * bullet.Velocity.X / 60;
                     var y = bullet.Position.Y + t * bullet.Velocity.Y / 60;
-                    var pos = new Vec2Float((float) x, (float) y);
-                    var size = new Vec2Float((float) bullet.Size, (float) bullet.Size);
-                    //debug.Draw(new CustomData.Rect(pos, size, new ColorFloat(255, 255, 255, 255)));
-
-                    if (game.Level.Tiles[(int) Math.Floor(x)][(int) Math.Floor(y)] == Tile.Wall)
+                    if (game.Level.Tiles[(int) x][(int) y] == Tile.Wall)
                     {
-                        removedBullets.Add(bullet);
+                        break;
                     }
+
+                    bulletNodes.Add(new BulletNode
+                    {
+                        Pos = new Vec2Double(x, y),
+                        Size = bullet.Size,
+                        Tick = t
+                    });
                 }
 
-                foreach (var removed in removedBullets)
-                {
-                    enemyBullets.Remove(removed);
-                }
+                bulletMap.Add(bulletNodes);
             }
 
             //////////////////////////////
@@ -308,6 +309,13 @@ namespace AiCup2019
             }
 
             return false;
+        }
+
+        public class BulletNode
+        {
+            public Vec2Double Pos { get; set; }
+            public double Size { get; set; }
+            public int Tick { get; set; }
         }
     }
 }
