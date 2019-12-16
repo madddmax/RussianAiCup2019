@@ -7,31 +7,38 @@ namespace AiCup2019
 {
     public class MyStrategy
     {
-        private Vec2Double _firstUnitPos = new Vec2Double(0, 0);
-        private Vec2Double _prevAim = new Vec2Double(0, 0);
+        private static Unit _me;
+        private static Unit[] _units;
+        private static LootBox[] _lootBoxes;
+        private static Bullet[] _bullets;
+        private static Mine[] _mines;
+        private static Tile[][] _tiles;
+        private static Properties _properties;
+
+        private static Vec2Double _prevAim = new Vec2Double(0, 0);
+        private static List<List<BulletNode>> _bulletMap = new List<List<BulletNode>>();
 
         public UnitAction GetAction(Unit unit, Game game, Debug debug)
         {
-            debug.Draw(new CustomData.Log("Version 7"));
-
-            if (game.CurrentTick == 0)
-            {
-                _firstUnitPos = unit.Position;
-            }
-
-            //////////////////////////////
+            _me = unit;
+            _units = game.Units;
+            _lootBoxes = game.LootBoxes;
+            _bullets = game.Bullets;
+            _mines = game.Mines;
+            _tiles = game.Level.Tiles;
+            _properties = game.Properties;
 
             Unit? nearestEnemy = null;
-            foreach (var other in game.Units)
+            foreach (var other in _units)
             {
-                if (other.PlayerId == unit.PlayerId)
+                if (other.PlayerId == _me.PlayerId)
                 {
                     continue;
                 }
 
                 if (!nearestEnemy.HasValue ||
-                    DistanceSqr(unit.Position, other.Position) <
-                    DistanceSqr(unit.Position, nearestEnemy.Value.Position))
+                    DistanceSqr(_me.Position, other.Position) <
+                    DistanceSqr(_me.Position, nearestEnemy.Value.Position))
                 {
                     nearestEnemy = other;
                 }
@@ -39,42 +46,42 @@ namespace AiCup2019
 
             if (nearestEnemy == null)
             {
-                return EmptyAction();
+                return new UnitAction();
             }
 
             var enemy = nearestEnemy.Value;
 
             //////////////////////////////
 
-            if (unit.Weapon == null)
+            if (_me.Weapon == null)
             {
                 LootBox? nearestWeapon = null;
-                foreach (var lootBox in game.LootBoxes)
+                foreach (var lootBox in _lootBoxes)
                 {
                     if (lootBox.Item is Item.Weapon w)
                     {
                         if (!nearestWeapon.HasValue ||
-                            DistanceSqr(unit.Position, lootBox.Position) <
-                            DistanceSqr(unit.Position, nearestWeapon.Value.Position))
+                            DistanceSqr(_me.Position, lootBox.Position) <
+                            DistanceSqr(_me.Position, nearestWeapon.Value.Position))
                         {
                             nearestWeapon = lootBox;
                         }
                     }
                 }
 
-                var weaponPosition = nearestWeapon?.Position ?? unit.Position;
+                var weaponPosition = nearestWeapon?.Position ?? _me.Position;
                 return new UnitAction
                 {
-                    Velocity = GetMaxSpeed(unit.Position, weaponPosition, game.Properties.UnitMaxHorizontalSpeed),
-                    Jump = NeedJump(unit.Position, weaponPosition, game.Level.Tiles),
-                    JumpDown = !NeedJump(unit.Position, weaponPosition, game.Level.Tiles)
+                    Velocity = GetMaxSpeed(_me.Position, weaponPosition, _properties.UnitMaxHorizontalSpeed),
+                    Jump = NeedJump(_me.Position, weaponPosition),
+                    JumpDown = !NeedJump(_me.Position, weaponPosition)
                 };
             }
 
             //////////////////////////////
 
-            var enemyBullets = game.Bullets.Where(b => b.UnitId != unit.Id).ToList();
-            List<List<BulletNode>> bulletMap = new List<List<BulletNode>>();
+            var enemyBullets = _bullets.Where(b => b.UnitId != _me.Id).ToList();
+            _bulletMap = new List<List<BulletNode>>();
             foreach (var bullet in enemyBullets)
             {
                 var bulletNodes = new List<BulletNode>();
@@ -82,7 +89,7 @@ namespace AiCup2019
                 {
                     var x = bullet.Position.X + t * bullet.Velocity.X / 60;
                     var y = bullet.Position.Y + t * bullet.Velocity.Y / 60;
-                    if (game.Level.Tiles[(int) x][(int) y] == Tile.Wall)
+                    if (HasWall(x, y))
                     {
                         break;
                     }
@@ -95,71 +102,70 @@ namespace AiCup2019
                     });
                 }
 
-                bulletMap.Add(bulletNodes);
+                _bulletMap.Add(bulletNodes);
             }
 
             //////////////////////////////
 
+            var move = GetMove(_me.Position, _me.Weapon.Value, enemy, 0, 0, Moves.No);
+
             UnitAction action = new UnitAction();
+            action.Jump = move.HasFlag(Moves.Up);
+            action.JumpDown = move.HasFlag(Moves.Down);
+            action.Velocity = move.HasFlag(Moves.Right) || move.HasFlag(Moves.Left)
+                ? _properties.UnitMaxHorizontalSpeed
+                : 0;
+            action.Velocity = move.HasFlag(Moves.Left) ? -action.Velocity : action.Velocity;
 
-            if (unit.Health < game.Properties.UnitMaxHealth && unit.Health < enemy.Health)
-            {
-                LootBox? nearestHealth = null;
-                foreach (var lootBox in game.LootBoxes)
-                {
-                    if (lootBox.Item is Item.HealthPack w)
-                    {
-                        if (!nearestHealth.HasValue ||
-                            DistanceSqr(unit.Position, lootBox.Position) <
-                            DistanceSqr(unit.Position, nearestHealth.Value.Position) &&
-                            DistanceSqr(enemy.Position, lootBox.Position) >
-                            DistanceSqr(unit.Position, lootBox.Position))
-                        {
-                            nearestHealth = lootBox;
-                        }
-                    }
-                }
+            //if (unit.Health < game.Properties.UnitMaxHealth && unit.Health < enemy.Health)
+            //{
+            //    LootBox? nearestHealth = null;
+            //    foreach (var lootBox in game.LootBoxes)
+            //    {
+            //        if (lootBox.Item is Item.HealthPack w)
+            //        {
+            //            if (!nearestHealth.HasValue ||
+            //                DistanceSqr(unit.Position, lootBox.Position) <
+            //                DistanceSqr(unit.Position, nearestHealth.Value.Position) &&
+            //                DistanceSqr(enemy.Position, lootBox.Position) >
+            //                DistanceSqr(unit.Position, lootBox.Position))
+            //            {
+            //                nearestHealth = lootBox;
+            //            }
+            //        }
+            //    }
 
-                var escapePosition = nearestHealth?.Position ?? _firstUnitPos;
+            //    var escapePosition = nearestHealth?.Position ?? _firstUnitPos;
 
-                if (Math.Abs(escapePosition.X - unit.Position.X) < 0.2 &&
-                    Math.Abs(escapePosition.Y - unit.Position.Y) < 0.2)
-                {
-                    action.Velocity = 0;
-                    action.Jump = false;
-                    action.JumpDown = false;
-                }
-                else
-                {
-                    action.Velocity = GetMaxSpeed(unit.Position, escapePosition, game.Properties.UnitMaxHorizontalSpeed);
-                    action.Jump = NeedJump(unit.Position, escapePosition, game.Level.Tiles);
-                    action.JumpDown = !NeedJump(unit.Position, escapePosition, game.Level.Tiles);
-                }
-            }
-            else
-            {
-                action.Velocity = GetMaxSpeed(unit.Position, enemy.Position, game.Properties.UnitMaxHorizontalSpeed);
-                action.Jump = NeedJump(unit.Position, enemy.Position, game.Level.Tiles);
-                action.JumpDown = !NeedJump(unit.Position, enemy.Position, game.Level.Tiles);
-            }
+            //    if (Math.Abs(escapePosition.X - unit.Position.X) < 0.2 &&
+            //        Math.Abs(escapePosition.Y - unit.Position.Y) < 0.2)
+            //    {
+            //        action.Velocity = 0;
+            //        action.Jump = false;
+            //        action.JumpDown = false;
+            //    }
+            //    else
+            //    {
+            //        action.Velocity = GetMaxSpeed(unit.Position, escapePosition, game.Properties.UnitMaxHorizontalSpeed);
+            //        action.Jump = NeedJump(unit.Position, escapePosition, game.Level.Tiles);
+            //        action.JumpDown = !NeedJump(unit.Position, escapePosition, game.Level.Tiles);
+            //    }
+            //}
+            //else
+            //{
+            //    action.Velocity = GetMaxSpeed(unit.Position, enemy.Position, game.Properties.UnitMaxHorizontalSpeed);
+            //    action.Jump = NeedJump(unit.Position, enemy.Position, game.Level.Tiles);
+            //    action.JumpDown = !NeedJump(unit.Position, enemy.Position, game.Level.Tiles);
+            //}
 
-            var unitWeaponPos = unit.Weapon.Value.Typ != WeaponType.RocketLauncher
-                ? new Vec2Double(unit.Position.X, unit.Position.Y + game.Properties.UnitSize.Y / 2)
-                : unit.Position;
-
-            bool isPossibleShoot = (unit.Weapon.Value.FireTimer == null || unit.Weapon.Value.FireTimer < 0.02) &&
-                                   (IsPossibleShoot(unitWeaponPos, new Vec2Double(enemy.Position.X - game.Properties.UnitSize.X / 2, enemy.Position.Y), game.Level.Tiles) ||
-                                    IsPossibleShoot(unitWeaponPos, new Vec2Double(enemy.Position.X + game.Properties.UnitSize.X / 2, enemy.Position.Y), game.Level.Tiles) ||
-                                    IsPossibleShoot(unitWeaponPos, new Vec2Double(enemy.Position.X - game.Properties.UnitSize.X / 2, enemy.Position.Y + game.Properties.UnitSize.Y), game.Level.Tiles) ||
-                                    IsPossibleShoot(unitWeaponPos, new Vec2Double(enemy.Position.X + game.Properties.UnitSize.X / 2, enemy.Position.Y + game.Properties.UnitSize.Y), game.Level.Tiles));
-
+            var isPossibleShoot = IsPossibleShoot(_me.Position, _me.Weapon.Value, enemy.Position);
             if (isPossibleShoot)
             {
                 action.Aim = _prevAim;
             }
             else
             {
-                action.Aim = new Vec2Double(enemy.Position.X - unit.Position.X, enemy.Position.Y - unit.Position.Y);
+                action.Aim = new Vec2Double(enemy.Position.X - _me.Position.X, enemy.Position.Y - _me.Position.Y);
                 _prevAim = action.Aim;
             }
 
@@ -170,97 +176,170 @@ namespace AiCup2019
             return action;
         }
 
-        private static UnitAction EmptyAction()
+        private static Moves GetMove(Vec2Double mePos, Weapon meWeapon, Unit enemy, int tick, int directionChanges, Moves excludedMoves)
         {
-            return new UnitAction
+            foreach (Moves move in Enum.GetValues(typeof(Moves)))
             {
-                Velocity = 0,
-                Aim = new Vec2Double(0, 0),
-                Jump = false,
-                JumpDown = false,
-                PlantMine = false,
-                Shoot = false,
-                SwapWeapon = false
-            };
-        }
-
-        private static bool IsPossibleShoot(Vec2Double myPos, Vec2Double enemyPos, Tile[][] tiles)
-        {
-            bool isPossible = true;
-            if (Math.Abs(myPos.X - enemyPos.X) >
-                Math.Abs(myPos.Y - enemyPos.Y))
-            {
-                double startX = myPos.X < enemyPos.X ? myPos.X : enemyPos.X;
-                double endX = myPos.X < enemyPos.X ? enemyPos.X : myPos.X;
-                for (double x = startX + 0.1; x < endX; x += 0.1)
+                if (excludedMoves.HasFlag(move))
                 {
-                    var y = Y(myPos, enemyPos, x);
+                    continue;
+                }
 
-                    int tileX = (int)x;
-                    int tileY = (int)y;
+                double x = mePos.X;
+                double y = mePos.Y;
+                for (int t = tick; t < 180; t++)
+                {
+                    double prevX = x;
+                    double prevY = y;
 
-                    if (tileX < 0 ||
-                        tileY < 0 ||
-                        tileX > tiles.Length - 1 ||
-                        tileY > tiles[0].Length - 1)
+                    if (move.HasFlag(Moves.Up))
                     {
-                        continue;
+                        y += _properties.UnitJumpSpeed / 60;
                     }
 
-                    if (tiles[tileX][tileY] == Tile.Wall)
+                    if (move.HasFlag(Moves.Down))
                     {
-                        isPossible = false;
+                        y -= _properties.UnitFallSpeed / 60;
+                    }
+
+                    if (move.HasFlag(Moves.Left))
+                    {
+                        x -= _properties.UnitMaxHorizontalSpeed / 60;
+                    }
+
+                    if (move.HasFlag(Moves.Right))
+                    {
+                        x += _properties.UnitMaxHorizontalSpeed / 60;
+                    }
+
+                    if (HasWall(x, y))
+                    {
+                        if (directionChanges > 1)
+                        {
+                            break;
+                        }
+
+                        var newPos = new Vec2Double(prevX, prevY);
+                        int newDirectionChanges = directionChanges + 1;
+                        var newExcludedMoves = excludedMoves & move;
+                        var newMove = GetMove(newPos, meWeapon, enemy, t, newDirectionChanges, newExcludedMoves);
+                        if (newMove != Moves.No)
+                        {
+                            return move;
+                        }
+
+                        break;
+                    }
+
+                    var newMePos = new Vec2Double(x, y);
+                    var isPossibleShoot = IsPossibleShoot(newMePos, meWeapon, enemy.Position);
+                    if (isPossibleShoot)
+                    {
+                        return move;
+                    }
+
+                    //foreach (var bulletNodes in bulletMap)
+                    //{
+                    //    if (bulletNodes.Count <= t)
+                    //    {
+                    //        break;
+                    //    }
+                    //}
+
+                }
+
+            }
+
+            return Moves.No;
+        }
+
+        private static bool IsPossibleShoot(Vec2Double mePos, Weapon meWeapon, Vec2Double enemyPos)
+        {
+            var unitWeaponPos = meWeapon.Typ != WeaponType.RocketLauncher
+                ? new Vec2Double(mePos.X, mePos.Y + _properties.UnitSize.Y / 2)
+                : mePos;
+
+            var enemyUp = enemyPos.Y + _properties.UnitSize.Y;
+            var leftDownAngle = new Vec2Double(enemyPos.X - _properties.UnitSize.X / 2, enemyPos.Y);
+            var rightDownAngle = new Vec2Double(enemyPos.X + _properties.UnitSize.X / 2, enemyPos.Y);
+            var leftUpAngle = new Vec2Double(enemyPos.X - _properties.UnitSize.X / 2, enemyUp);
+            var rightUpAngle = new Vec2Double(enemyPos.X + _properties.UnitSize.X / 2, enemyUp);
+
+            return (meWeapon.FireTimer == null || meWeapon.FireTimer < 0.02) &&
+                (IsVisible(unitWeaponPos, leftDownAngle) ||
+                 IsVisible(unitWeaponPos, rightDownAngle) ||
+                 IsVisible(unitWeaponPos, leftUpAngle) ||
+                 IsVisible(unitWeaponPos, rightUpAngle));
+        }
+
+        private static bool IsVisible(Vec2Double mePos, Vec2Double enemyPos)
+        {
+            if (Math.Abs(mePos.X - enemyPos.X) >
+                Math.Abs(mePos.Y - enemyPos.Y))
+            {
+                double startX = mePos.X < enemyPos.X ? mePos.X : enemyPos.X;
+                double endX = mePos.X < enemyPos.X ? enemyPos.X : mePos.X;
+                for (double x = startX + 0.1; x < endX; x += 0.1)
+                {
+                    var y = Y(mePos, enemyPos, x);
+                    if (HasWall(x, y))
+                    {
+                        return false;
                     }
                 }
             }
             else
             {
-                double startY = myPos.Y < enemyPos.Y ? myPos.Y : enemyPos.Y;
-                double endY = myPos.Y < enemyPos.Y ? enemyPos.Y : myPos.Y;
+                double startY = mePos.Y < enemyPos.Y ? mePos.Y : enemyPos.Y;
+                double endY = mePos.Y < enemyPos.Y ? enemyPos.Y : mePos.Y;
                 for (double y = startY + 0.1; y < endY; y += 0.1)
                 {
-                    var x = X(myPos, enemyPos, y);
-
-                    int tileX = (int)x;
-                    int tileY = (int)y;
-
-                    if (tileX < 0 ||
-                        tileY < 0 ||
-                        tileX > tiles.Length - 1 ||
-                        tileY > tiles[0].Length - 1)
+                    var x = X(mePos, enemyPos, y);
+                    if (HasWall(x, y))
                     {
-                        continue;
-                    }
-
-                    if (tiles[tileX][tileY] == Tile.Wall)
-                    {
-                        isPossible = false;
+                        return false;
                     }
                 }
             }
 
-            return isPossible;
+            return true;
         }
 
-        private static double GetMaxSpeed(Vec2Double myPos, Vec2Double targetPos, double maxSpeed)
+        private static bool HasWall(double x, double y)
         {
-            return myPos.X < targetPos.X
+            int tileX = (int)x;
+            int tileY = (int)y;
+
+            if (tileX < 0 ||
+                tileY < 0 ||
+                tileX > _tiles.Length - 1 ||
+                tileY > _tiles[0].Length - 1)
+            {
+                return false;
+            }
+
+            return _tiles[tileX][tileY] == Tile.Wall;
+        }
+
+        private static double GetMaxSpeed(Vec2Double mePos, Vec2Double targetPos, double maxSpeed)
+        {
+            return mePos.X < targetPos.X
                 ? maxSpeed
                 : -maxSpeed;
         }
 
-        private static bool NeedJump(Vec2Double myPos, Vec2Double targetPos, Tile[][] tiles)
+        private static bool NeedJump(Vec2Double mePos, Vec2Double targetPos)
         {
-            if (myPos.X < targetPos.X && tiles[(int)(myPos.X + 1)][(int)(myPos.Y)] == Tile.Wall)
+            if (mePos.X < targetPos.X && _tiles[(int)(mePos.X + 1)][(int)(mePos.Y)] == Tile.Wall)
             {
                 return true;
             }
-            if (myPos.X > targetPos.X && tiles[(int)(myPos.X - 1)][(int)(myPos.Y)] == Tile.Wall)
+            if (mePos.X > targetPos.X && _tiles[(int)(mePos.X - 1)][(int)(mePos.Y)] == Tile.Wall)
             {
                 return true;
             }
 
-            return targetPos.Y > myPos.Y;
+            return targetPos.Y > mePos.Y;
         }
 
         private static double DistanceSqr(Vec2Double a, Vec2Double b)
@@ -316,6 +395,20 @@ namespace AiCup2019
             public Vec2Double Pos { get; set; }
             public double Size { get; set; }
             public int Tick { get; set; }
+        }
+
+        [Flags]
+        public enum Moves : byte
+        {
+            No = 0b0000_0000,
+            Up = 0b0000_0001,
+            Down = 0b0000_0010,
+            Left = 0b0000_0100,
+            Right = 0b0000_1000,
+            UpLeft = 0b0000_0101,
+            UpRight = 0b0000_1001,
+            DownLeft = 0b0000_0110,
+            DownRight = 0b0000_1010
         }
     }
 }
