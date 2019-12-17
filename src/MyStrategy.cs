@@ -244,21 +244,21 @@ namespace AiCup2019
             }
 
             var meWeapon = _me.Weapon.Value;
-            var unitWeaponPos = meWeapon.Typ != WeaponType.RocketLauncher
-                ? new Vec2Double(mePos.X, mePos.Y + _properties.UnitSize.Y / 2)
-                : mePos;
+            var halfBulletSize = meWeapon.Parameters.Bullet.Size / 2;
+            var leftBulletPos = meWeapon.Typ != WeaponType.RocketLauncher
+                ? new Vec2Double(mePos.X - halfBulletSize, mePos.Y + _properties.UnitSize.Y / 2)
+                : new Vec2Double(mePos.X - halfBulletSize, mePos.Y);
+            var rightBulletPos = meWeapon.Typ != WeaponType.RocketLauncher
+                ? new Vec2Double(mePos.X + halfBulletSize, mePos.Y + _properties.UnitSize.Y / 2)
+                : new Vec2Double(mePos.X + halfBulletSize, mePos.Y);
 
             var enemyUp = enemyPos.Y + _properties.UnitSize.Y;
-            var leftDownAngle = new Vec2Double(enemyPos.X - _properties.UnitSize.X / 2, enemyPos.Y);
-            var rightDownAngle = new Vec2Double(enemyPos.X + _properties.UnitSize.X / 2, enemyPos.Y);
-            var leftUpAngle = new Vec2Double(enemyPos.X - _properties.UnitSize.X / 2, enemyUp);
-            var rightUpAngle = new Vec2Double(enemyPos.X + _properties.UnitSize.X / 2, enemyUp);
+            var enemyLeftUpAngle = new Vec2Double(enemyPos.X - _properties.UnitSize.X / 2, enemyUp);
+            var enemyRightDownAngle = new Vec2Double(enemyPos.X + _properties.UnitSize.X / 2, enemyPos.Y);
 
             return (meWeapon.FireTimer == null || meWeapon.FireTimer < 0.02) &&
-                (IsVisible(unitWeaponPos, leftDownAngle) ||
-                 IsVisible(unitWeaponPos, rightDownAngle) ||
-                 IsVisible(unitWeaponPos, leftUpAngle) ||
-                 IsVisible(unitWeaponPos, rightUpAngle));
+                ((IsVisible(leftBulletPos, enemyRightDownAngle) && IsVisible(rightBulletPos, enemyRightDownAngle)) ||
+                 (IsVisible(leftBulletPos, enemyLeftUpAngle) && IsVisible(rightBulletPos, enemyLeftUpAngle)));
         }
 
         private static bool IsVisible(Vec2Double mePos, Vec2Double enemyPos)
@@ -301,13 +301,13 @@ namespace AiCup2019
             int tileX = (int)x;
             int tileY = (int)y;
 
-            //if (tileX < 0 ||
-            //    tileY < 0 ||
-            //    tileX > _tiles.Length - 1 ||
-            //    tileY > _tiles[0].Length - 1)
-            //{
-            //    return false;
-            //}
+            if (tileX < 0 ||
+                tileY < 0 ||
+                tileX > _tiles.Length - 1 ||
+                tileY > _tiles[0].Length - 1)
+            {
+                return false;
+            }
 
             return _tiles[tileX][tileY] == Tile.Wall;
         }
