@@ -8,7 +8,7 @@ namespace AiCup2019
     public class MyStrategy
     {
         private const int MaxSimulatedTicks = 180;
-        private const int MaxDirectionChanges = 3;
+        private const int MaxDirectionChanges = 2;
 
         private static Unit _me;
         private static Unit[] _units;
@@ -95,7 +95,7 @@ namespace AiCup2019
             //////////////////////////////
             UnitAction action = new UnitAction();
             var bestMoves = GetMove(_me.Position, enemy, 0, 0, Moves.No);
-            var move = bestMoves[0];
+            var move = bestMoves.Count != 0 ? bestMoves[0] : Moves.No;
 
             action.Jump = move.HasFlag(Moves.Up);
             action.JumpDown = move.HasFlag(Moves.Down);
@@ -129,11 +129,6 @@ namespace AiCup2019
         private static List<Moves> GetMove(Vec2Double mePos, Unit enemy, int tick, int directionChanges, Moves excludedMoves)
         {
             var bestMoves = new List<Moves>();
-            for (int t = tick; t < MaxSimulatedTicks; t++)
-            {
-                bestMoves.Add(Moves.No);
-            }
-
             foreach (Moves move in Enum.GetValues(typeof(Moves)))
             {
                 if (excludedMoves.HasFlag(move))
@@ -143,7 +138,9 @@ namespace AiCup2019
 
                 double x = mePos.X;
                 double y = mePos.Y;
+                bool isTerminate = false;
                 var moves = new List<Moves>();
+
                 for (int t = tick; t < MaxSimulatedTicks; t++)
                 {
                     double prevX = x;
@@ -169,26 +166,37 @@ namespace AiCup2019
                         x += _properties.UnitMaxHorizontalSpeed / 60;
                     }
 
-                    if (HasWall(x, y) || (move.HasFlag(Moves.Up) && t == 33 && !HasLadder(x, y)))
+
+                    if (HasWall(x - _properties.UnitSize.X / 2, y) || 
+                        HasWall(x - _properties.UnitSize.X / 2, y) ||
+                        (move.HasFlag(Moves.Up) && moves.Count == 33))
                     {
                         if (directionChanges >= MaxDirectionChanges)
                         {
-                            for (int m = t; m < MaxSimulatedTicks; m++)
-                            {
-                                moves.Add(Moves.No);
-                            }
+                            isTerminate = true;
                             break;
                         }
 
                         var newPos = new Vec2Double(prevX, prevY);
                         int newDirectionChanges = directionChanges + 1;
-                        var newExcludedMoves = excludedMoves | move;
+                        var newExcludedMoves = move;
                         var newMoves = GetMove(newPos, enemy, t, newDirectionChanges, newExcludedMoves);
+                        if (newMoves.Count == 0)
+                        {
+                            isTerminate = true;
+                            break;
+                        }
+
                         moves.AddRange(newMoves);
                         break;
                     }
 
                     moves.Add(move);
+                    if (bestMoves.Count > 0 && moves.Count > bestMoves.Count)
+                    {
+                        isTerminate = true;
+                        break;
+                    }
 
                     var newMePos = new Vec2Double(x, y);
                     if (_me.Weapon == null)
@@ -227,7 +235,12 @@ namespace AiCup2019
 
                 }
 
-                if (moves.Count < bestMoves.Count)
+                if (isTerminate)
+                {
+                    continue;
+                }
+
+                if (bestMoves.Count == 0 || moves.Count < bestMoves.Count)
                 {
                     bestMoves = moves;
                 }
