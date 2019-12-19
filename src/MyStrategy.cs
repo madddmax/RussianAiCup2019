@@ -116,15 +116,15 @@ namespace AiCup2019
             return action;
         }
 
-        private static List<Moves> GetMove(Vec2Double mePos, JumpState jumpState, int tick, int directionChanges, Moves excludedMoves)
+        private static List<Result> GetMove(Vec2Double mePos, JumpState jumpState, int tick, int directionChanges, Moves excludedMoves)
         {
-            var bestMoves = new List<Moves>();
+            var results = new List<Result>();
             foreach (Moves move in Enum.GetValues(typeof(Moves)))
             {
                 double x = mePos.X;
                 double y = mePos.Y;
                 bool isTerminate = false;
-                var moves = new List<Moves>();
+                //var moves = new List<Moves>();
                 var moveJumpState = jumpState;
 
                 if (excludedMoves.HasFlag(move))
@@ -263,7 +263,7 @@ namespace AiCup2019
                 }
             }
 
-            return bestMoves;
+            return results;
         }
 
         private static bool IsPossibleShoot(Vec2Double mePos, Vec2Double enemyPos)
@@ -326,22 +326,6 @@ namespace AiCup2019
             return true;
         }
 
-        private static bool HasWall(double x, double y)
-        {
-            int tileX = (int)x;
-            int tileY = (int)y;
-
-            if (tileX < 0 ||
-                tileY < 0 ||
-                tileX > _tiles.Length - 1 ||
-                tileY > _tiles[0].Length - 1)
-            {
-                return false;
-            }
-
-            return _tiles[tileX][tileY] == Tile.Wall;
-        }
-
         private static Tile GetTile(double x, double y)
         {
             int tileX = (int)x;
@@ -370,20 +354,6 @@ namespace AiCup2019
             return false;
         }
 
-        private static bool NeedJump(Vec2Double mePos, Vec2Double targetPos)
-        {
-            if (mePos.X < targetPos.X && _tiles[(int)(mePos.X + 1)][(int)(mePos.Y)] == Tile.Wall)
-            {
-                return true;
-            }
-            if (mePos.X > targetPos.X && _tiles[(int)(mePos.X - 1)][(int)(mePos.Y)] == Tile.Wall)
-            {
-                return true;
-            }
-
-            return targetPos.Y > mePos.Y;
-        }
-
         private static double DistanceSqr(Vec2Double a, Vec2Double b)
         {
             return (a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y);
@@ -397,11 +367,6 @@ namespace AiCup2019
         private static double Y(Vec2Double p1, Vec2Double p2, double x)
         {
             return (x - p1.X) * (p2.Y - p1.Y) / (p2.X - p1.X) + p1.Y;
-        }
-
-        private static Vec2Double GetVec(Vec2Double p1, Vec2Double p2)
-        {
-            return new Vec2Double(p2.X - p1.X, p2.Y - p1.Y);
         }
 
         public double LengthVec(Vec2Double v)
@@ -451,6 +416,13 @@ namespace AiCup2019
             UpRight = 0b0000_1001,
             DownLeft = 0b0000_0110,
             DownRight = 0b0000_1010
+        }
+
+        public class Result
+        {
+            public int TotalTicks { get; set; }
+            public Moves FirstMove { get; set; }
+            public Vec2Double LastPos { get; set; }
         }
     }
 }
