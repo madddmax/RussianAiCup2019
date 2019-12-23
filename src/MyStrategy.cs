@@ -11,8 +11,10 @@ namespace AiCup2019
         private const int MaxDirectionChanges = 1;
 
         private static Unit _me;
-        private static List<Unit> _friends;
-        private static List<Unit> _enemies;
+        private static Unit _targetEnemy;
+        private static Unit? _friend;
+        private static Unit? _otherEnemy;
+
         private static LootBox[] _weaponLootBoxes;
         private static LootBox[] _healthLootBoxes;
         private static Bullet[] _bullets;
@@ -21,7 +23,7 @@ namespace AiCup2019
         private static Properties _properties;
         private static int _currentTick;
 
-        private static Vec2Double _prevAim = new Vec2Double(0, 0);
+        private static Dictionary<int, LootBox?> _nearestWeaponDic = new Dictionary<int, LootBox?>();
         private static List<List<BulletNode>> _bulletMap = new List<List<BulletNode>>();
 
         public UnitAction GetAction(Unit unit, Game game, Debug debug)
@@ -35,10 +37,16 @@ namespace AiCup2019
             _properties = game.Properties;
             _currentTick = game.CurrentTick;
 
-            _friends = new List<Unit>();
-            _enemies = new List<Unit>();
+            _friend = null;
+            _otherEnemy = null;
+            Unit? targetEnemy = null;
             foreach (var u in game.Units)
             {
+                if (u.Health == 0)
+                {
+                    continue;
+                }
+
                 if (u.Id == _me.Id)
                 {
                     continue;
@@ -46,17 +54,77 @@ namespace AiCup2019
 
                 if (u.PlayerId == _me.PlayerId)
                 {
-                    _friends.Add(u);
+                    _friend = u;
                     continue;
                 }
 
-                _enemies.Add(u);
+                if (targetEnemy == null ||
+                    u.Health < targetEnemy.Value.Health - 10 ||
+                    (u.Health == targetEnemy.Value.Health &&
+                    DistanceSqr(_me.Position, u.Position) <
+                    DistanceSqr(_me.Position, targetEnemy.Value.Position)))
+                {
+                    targetEnemy = u;
+                    continue;
+                }
+
+                _otherEnemy = u;
             }
 
-            if (_enemies.Count == 0)
+            if (targetEnemy == null)
             {
                 return new UnitAction();
             }
+
+            _targetEnemy = targetEnemy.Value;
+
+            //////////////////////////////////
+
+            if (_me.Weapon == null)
+            {
+                if (!_nearestWeaponDic.ContainsKey(_me.Id))
+                {
+                    _nearestWeaponDic[_me.Id] = null;
+                }
+
+                if (_friend != null && !_nearestWeaponDic.ContainsKey(_friend.Value.Id))
+                {
+                    _nearestWeaponDic[_friend.Value.Id] = null;
+                }
+
+                LootBox? nearestWeapon = null;
+                LootBox? friendsWeapon = null;
+                if (_friend != null && _friend.Value.Weapon == null)
+                {
+                    friendsWeapon = _nearestWeaponDic[_friend.Value.Id];
+                }
+                foreach (var weapon in _weaponLootBoxes)
+                {
+                    if (!nearestWeapon.HasValue ||
+                        ((friendsWeapon == null || 
+                          Math.Abs(friendsWeapon.Value.Position.X - weapon.Position.X) > 0.02 ||
+                          Math.Abs(friendsWeapon.Value.Position.Y - weapon.Position.Y) > 0.02) &&
+                        DistanceSqr(_me.Position, weapon.Position) <
+                        DistanceSqr(_me.Position, nearestWeapon.Value.Position)))
+                    {
+                        nearestWeapon = weapon;
+                        _nearestWeaponDic[_me.Id] = weapon;
+                    }
+                }
+
+                var weaponPosition = nearestWeapon?.Position ?? _me.Position;
+                return new UnitAction
+                {
+                    Velocity = _me.Position.X < weaponPosition.X 
+                        ? game.Properties.UnitMaxHorizontalSpeed
+                        : -game.Properties.UnitMaxHorizontalSpeed,
+
+                    Jump = NeedJump(unit.Position, weaponPosition),
+                    JumpDown = !NeedJump(unit.Position, weaponPosition)
+                };
+            }
+
+            //////////////////////////////
 
             var enemyBullets = _bullets.Where(b => b.UnitId != _me.Id).ToList();
             _bulletMap = new List<List<BulletNode>>();
@@ -84,75 +152,63 @@ namespace AiCup2019
             }
 
             //////////////////////////////
-            UnitAction action = new UnitAction();
-            var results = GetMove(_me.Position, _me.JumpState, 0, 0, null);
-            Moves move = Moves.Right;
 
-            if (_me.Weapon == null)
+            UnitAction action = new UnitAction();
+
+            if (unit.Health < game.Properties.UnitMaxHealth && unit.Health < _targetEnemy.Health)
             {
-                if (results.Any(r => r.CanTakeWeaponTick.HasValue))
+                LootBox? nearestHealth = null;
+                foreach (var health in _healthLootBoxes)
                 {
-                    int minCanTakeWeaponTick = int.MaxValue;
-                    foreach (var result in results)
+                    if (!nearestHealth.HasValue ||
+                        DistanceSqr(unit.Position, health.Position) <
+                        DistanceSqr(unit.Position, nearestHealth.Value.Position) &&
+                        DistanceSqr(_targetEnemy.Position, health.Position) >
+                        DistanceSqr(unit.Position, health.Position))
                     {
-                        if (result.CanTakeWeaponTick != null &&
-                            result.CanTakeWeaponTick.Value < minCanTakeWeaponTick)
-                        {
-                            move = result.FirstMove;
-                            minCanTakeWeaponTick = result.CanTakeWeaponTick.Value;
-                        }
+                        nearestHealth = health;
                     }
                 }
-                //else
-                //{
-                //    LootBox? nearestWeapon = null;
-                //    foreach (var weapon in _weaponLootBoxes)
-                //    {
-                //        if (!nearestWeapon.HasValue ||
-                //            DistanceSqr(_me.Position, weapon.Position) <
-                //            DistanceSqr(_me.Position, nearestWeapon.Value.Position))
-                //        {
-                //            nearestWeapon = weapon;
-                //        }
-                //    }
 
-                //    double minDistance = double.MaxValue;
-                //    foreach (var result in results)
-                //    {
-                //        if (nearestWeapon == null)
-                //        {
-                //            break;
-                //        }
+                if (nearestHealth != null)
+                {
+                    action.Velocity = _me.Position.X < nearestHealth.Value.Position.X
+                        ? game.Properties.UnitMaxHorizontalSpeed
+                        : -game.Properties.UnitMaxHorizontalSpeed;
 
-                //        var distance = DistanceSqr(result.LastPos, nearestWeapon.Value.Position);
-                //        if (distance < minDistance)
-                //        {
-                //            move = result.FirstMove;
-                //            minDistance = distance;
-                //        }
-                //    }
-                //}
+                    action.Jump = NeedJump(unit.Position, nearestHealth.Value.Position);
+                    action.JumpDown = !NeedJump(unit.Position, nearestHealth.Value.Position);
+                }
+                else
+                {
+                    action.Velocity = _me.Position.X < _targetEnemy.Position.X
+                        ? game.Properties.UnitMaxHorizontalSpeed
+                        : -game.Properties.UnitMaxHorizontalSpeed;
+
+                    action.Jump = NeedJump(unit.Position, _targetEnemy.Position);
+                    action.JumpDown = !NeedJump(unit.Position, _targetEnemy.Position);
+                }
+            }
+            else
+            {
+                action.Velocity = _me.Position.X < _targetEnemy.Position.X
+                    ? game.Properties.UnitMaxHorizontalSpeed
+                    : -game.Properties.UnitMaxHorizontalSpeed;
+
+                action.Jump = NeedJump(unit.Position, _targetEnemy.Position);
+                action.JumpDown = !NeedJump(unit.Position, _targetEnemy.Position);
             }
 
-            action.Jump = move.HasFlag(Moves.Up);
-            action.JumpDown = move.HasFlag(Moves.Down);
-            if (move.HasFlag(Moves.Right))
+            action.Aim = new Vec2Double(_targetEnemy.Position.X - _me.Position.X, _targetEnemy.Position.Y - _me.Position.Y);
+            action.Shoot = IsPossibleShoot(_me.Position, _targetEnemy.Position);
+            
+            if(!action.Shoot && _otherEnemy != null)
             {
-                action.Velocity = _properties.UnitMaxHorizontalSpeed;
-            }
-            if (move.HasFlag(Moves.Left))
-            {
-                action.Velocity = -_properties.UnitMaxHorizontalSpeed;
-            }
-
-            foreach (var enemy in _enemies)
-            {
-                var isPossibleShoot = IsPossibleShoot(_me.Position, enemy.Position);
+                bool isPossibleShoot = IsPossibleShoot(_me.Position, _otherEnemy.Value.Position);
                 if (isPossibleShoot)
                 {
-                    action.Aim = new Vec2Double(enemy.Position.X - _me.Position.X, enemy.Position.Y - _me.Position.Y);
+                    action.Aim = new Vec2Double(_otherEnemy.Value.Position.X - _me.Position.X, _otherEnemy.Value.Position.Y - _me.Position.Y);
                     action.Shoot = true;
-                    break;
                 }
             }
 
@@ -160,6 +216,25 @@ namespace AiCup2019
             //action.Reload = false;
             //action.PlantMine = false;
             return action;
+        }
+
+        private static bool NeedJump(Vec2Double myPos, Vec2Double targetPos)
+        {
+            if (myPos.X < targetPos.X &&
+                (_tiles[(int) (myPos.X + 1)][(int) myPos.Y] == Tile.Wall ||
+                 (_friend != null && IsHit(_friend.Value.Position, myPos.X + 1, myPos.Y))))
+            {
+                return true;
+            }
+
+            if (myPos.X > targetPos.X &&
+                (_tiles[(int) (myPos.X - 1)][(int) myPos.Y] == Tile.Wall ||
+                 (_friend != null && IsHit(_friend.Value.Position, myPos.X - 1, myPos.Y))))
+            {
+                return true;
+            }
+
+            return targetPos.Y > myPos.Y;
         }
 
         private static bool CanMove(Vec2Double mePos, JumpState jumpState, Moves move)
@@ -286,42 +361,6 @@ namespace AiCup2019
                     {
                         results.Add(moveResult);
                     }
-
-                    //if (_me.Health < _properties.UnitMaxHealth && _healthLootBoxes.Length > 0)
-                    //{
-                    //    if (_healthLootBoxes.Any(lootBox => Math.Abs(lootBox.Position.X - newMePos.X) < lootBox.Size.X / 2 &&
-                    //                                        Math.Abs(lootBox.Position.Y - newMePos.Y) < lootBox.Size.Y / 2))
-                    //    {
-                    //        break;
-                    //    }
-                    //}
-                    //else if(_me.Weapon != null)
-                    //{
-                    //    bool end = false;
-                    //    foreach (var enemy in _enemies)
-                    //    {
-                    //        var isPossibleShoot = IsPossibleShoot(_me.Position, enemy.Position);
-                    //        if (isPossibleShoot)
-                    //        {
-                    //            end = true;
-                    //            break;
-                    //        }
-                    //    }
-
-                    //    if (end)
-                    //    {
-                    //        break;
-                    //    }
-                    //}
-
-                    //foreach (var bulletNodes in bulletMap)
-                    //{
-                    //    if (bulletNodes.Count <= t)
-                    //    {
-                    //        break;
-                    //    }
-                    //}
-
                 }
             }
 
@@ -336,10 +375,13 @@ namespace AiCup2019
             }
 
             var meWeapon = _me.Weapon.Value;
+            if (meWeapon.FireTimer != null && meWeapon.FireTimer >= 0.02)
+            {
+                return false;
+            }
+
             var halfBulletSize = meWeapon.Parameters.Bullet.Size / 2;
-            var leftBulletPos = meWeapon.Typ != WeaponType.RocketLauncher
-                ? new Vec2Double(mePos.X - halfBulletSize, mePos.Y + _properties.UnitSize.Y / 2)
-                : new Vec2Double(mePos.X - halfBulletSize, mePos.Y);
+            var leftBulletPos = new Vec2Double(mePos.X - halfBulletSize, mePos.Y + _properties.UnitSize.Y / 2);
             var rightBulletPos = meWeapon.Typ != WeaponType.RocketLauncher
                 ? new Vec2Double(mePos.X + halfBulletSize, mePos.Y + _properties.UnitSize.Y / 2)
                 : new Vec2Double(mePos.X + halfBulletSize, mePos.Y);
@@ -348,14 +390,25 @@ namespace AiCup2019
             var enemyLeftUpAngle = new Vec2Double(enemyPos.X - _properties.UnitSize.X / 2, enemyUp);
             var enemyRightDownAngle = new Vec2Double(enemyPos.X + _properties.UnitSize.X / 2, enemyPos.Y);
 
-            return (meWeapon.FireTimer == null || meWeapon.FireTimer < 0.02) &&
-                ((IsVisible(leftBulletPos, enemyRightDownAngle) && IsVisible(rightBulletPos, enemyRightDownAngle)) ||
-                 (IsVisible(leftBulletPos, enemyLeftUpAngle) && IsVisible(rightBulletPos, enemyLeftUpAngle)));
+            if (meWeapon.Typ != WeaponType.RocketLauncher)
+            {
+                return (IsVisible(leftBulletPos, enemyRightDownAngle) && IsVisible(rightBulletPos, enemyRightDownAngle)) ||
+                       (IsVisible(leftBulletPos, enemyLeftUpAngle) && IsVisible(rightBulletPos, enemyLeftUpAngle));
+            }
+
+            var downLeftBulletPos = new Vec2Double(mePos.X - halfBulletSize, mePos.Y);
+            var upLeftBulletPos = new Vec2Double(mePos.X - halfBulletSize, mePos.Y + _properties.UnitSize.Y);
+            var downRightBulletPos = new Vec2Double(mePos.X + halfBulletSize, mePos.Y);
+            var upRightBulletPos = new Vec2Double(mePos.X + halfBulletSize, mePos.Y + _properties.UnitSize.Y);
+            return IsVisible(downLeftBulletPos, enemyRightDownAngle) && IsVisible(downRightBulletPos, enemyRightDownAngle) &&
+                   IsVisible(upLeftBulletPos, enemyRightDownAngle) && IsVisible(upRightBulletPos, enemyRightDownAngle) &&
+                   IsVisible(downLeftBulletPos, enemyLeftUpAngle) && IsVisible(downRightBulletPos, enemyLeftUpAngle) &&
+                   IsVisible(upLeftBulletPos, enemyLeftUpAngle) && IsVisible(upRightBulletPos, enemyLeftUpAngle);
         }
 
         private static bool IsVisible(Vec2Double mePos, Vec2Double enemyPos)
         {
-            const double step = 0.5;
+            const double step = 0.1;
 
             if (Math.Abs(mePos.X - enemyPos.X) >
                 Math.Abs(mePos.Y - enemyPos.Y))
@@ -366,6 +419,11 @@ namespace AiCup2019
                 {
                     var y = Y(mePos, enemyPos, x);
                     if (GetTile(x, y) == Tile.Wall)
+                    {
+                        return false;
+                    }
+
+                    if (_friend != null && IsHit(_friend.Value.Position, x, y))
                     {
                         return false;
                     }
@@ -382,10 +440,26 @@ namespace AiCup2019
                     {
                         return false;
                     }
+
+                    if (_friend != null && IsHit(_friend.Value.Position, x, y))
+                    {
+                        return false;
+                    }
                 }
             }
 
             return true;
+        }
+
+        private static bool IsHit(Vec2Double unitPos, double bulletX, double bulletY)
+        {
+            if (bulletX >= unitPos.X - _properties.UnitSize.X / 2 && bulletX <= unitPos.X + _properties.UnitSize.X / 2 &&
+                bulletY >= unitPos.Y && bulletY <= unitPos.Y + _properties.UnitSize.Y)
+            {
+                return true;
+            }
+
+            return false;
         }
 
         private static Tile GetTile(double x, double y)
@@ -446,17 +520,6 @@ namespace AiCup2019
 
             double invLen = 1.0 / length;
             return new Vec2Double(v.X * invLen, v.Y * invLen);
-        }
-
-        public bool IsHit(Vec2Double enemyPos, Vec2Double bulletPos)
-        {
-            if (bulletPos.X >= enemyPos.X - 0.45 && bulletPos.X <= enemyPos.X + 0.45 &&
-                bulletPos.Y >= enemyPos.Y && bulletPos.Y <= enemyPos.Y + 1.8)
-            {
-                return true;
-            }
-
-            return false;
         }
 
         public class BulletNode
