@@ -7,14 +7,13 @@ namespace AiCup2019
 {
     public class MyStrategy
     {
-        private const int MaxSimulatedTiles = 180;
+        private const int MaxSimulatedTicks = 180;
+        private const int TicksInSec = 60;
         private const int MaxDirectionChanges = 2;
 
         private static Unit _me;
-        private static Unit _targetEnemy;
         private static Unit? _friend;
-        private static Unit? _otherEnemy;
-
+        private static List<Unit> _enemies;
         private static LootBox[] _weaponLootBoxes;
         private static LootBox[] _healthLootBoxes;
         private static Bullet[] _bullets;
@@ -23,7 +22,7 @@ namespace AiCup2019
         private static Properties _properties;
         private static int _currentTick;
 
-        private static Dictionary<int, LootBox?> _nearestWeaponDic = new Dictionary<int, LootBox?>();
+        private static Vec2Double _prevAim = new Vec2Double(0, 0);
         private static List<List<BulletNode>> _bulletMap = new List<List<BulletNode>>();
 
         public UnitAction GetAction(Unit unit, Game game, Debug debug)
@@ -37,16 +36,9 @@ namespace AiCup2019
             _properties = game.Properties;
             _currentTick = game.CurrentTick;
 
-            _friend = null;
-            _otherEnemy = null;
-            Unit? targetEnemy = null;
+            _enemies = new List<Unit>();
             foreach (var u in game.Units)
             {
-                if (u.Health == 0)
-                {
-                    continue;
-                }
-
                 if (u.Id == _me.Id)
                 {
                     continue;
@@ -58,80 +50,13 @@ namespace AiCup2019
                     continue;
                 }
 
-                if (targetEnemy == null ||
-                    u.Health < targetEnemy.Value.Health - 10 ||
-                    (u.Health == targetEnemy.Value.Health &&
-                    DistanceSqr(_me.Position, u.Position) <
-                    DistanceSqr(_me.Position, targetEnemy.Value.Position)))
-                {
-                    targetEnemy = u;
-                    continue;
-                }
-
-                _otherEnemy = u;
+                _enemies.Add(u);
             }
 
-            if (targetEnemy == null)
+            if (_enemies.Count == 0)
             {
                 return new UnitAction();
             }
-
-            _targetEnemy = targetEnemy.Value;
-
-            //////////////////////////////////
-
-            if (_me.Weapon == null)
-            {
-                if (!_nearestWeaponDic.ContainsKey(_me.Id))
-                {
-                    _nearestWeaponDic[_me.Id] = null;
-                }
-
-                if (_friend != null && !_nearestWeaponDic.ContainsKey(_friend.Value.Id))
-                {
-                    _nearestWeaponDic[_friend.Value.Id] = null;
-                }
-
-                LootBox? nearestWeapon = null;
-                LootBox? friendsWeapon = null;
-                if (_friend != null && _friend.Value.Weapon == null)
-                {
-                    friendsWeapon = _nearestWeaponDic[_friend.Value.Id];
-                }
-                foreach (var weapon in _weaponLootBoxes)
-                {
-                    if (!nearestWeapon.HasValue ||
-                        ((friendsWeapon == null || 
-                          Math.Abs(friendsWeapon.Value.Position.X - weapon.Position.X) > 0.02 ||
-                          Math.Abs(friendsWeapon.Value.Position.Y - weapon.Position.Y) > 0.02) &&
-                        DistanceSqr(_me.Position, weapon.Position) <
-                        DistanceSqr(_me.Position, nearestWeapon.Value.Position)))
-                    {
-                        nearestWeapon = weapon;
-                        _nearestWeaponDic[_me.Id] = weapon;
-                    }
-                }
-
-                var weaponPosition = nearestWeapon?.Position ?? _me.Position;
-                var bestMoves = GetMove(_me.Position, weaponPosition, 0, 0);
-                var weaponMove = bestMoves.Count != 0 ? bestMoves[0] : Moves.Right;
-
-                var weaponAction = new UnitAction();
-                weaponAction.Jump = weaponMove.HasFlag(Moves.Up);
-                weaponAction.JumpDown = weaponMove.HasFlag(Moves.Down);
-                if (weaponMove.HasFlag(Moves.Right))
-                {
-                    weaponAction.Velocity = _properties.UnitMaxHorizontalSpeed;
-                }
-                if (weaponMove.HasFlag(Moves.Left))
-                {
-                    weaponAction.Velocity = -_properties.UnitMaxHorizontalSpeed;
-                }
-
-                return weaponAction;
-            }
-
-            //////////////////////////////
 
             var enemyBullets = _bullets.Where(b => b.UnitId != _me.Id).ToList();
             _bulletMap = new List<List<BulletNode>>();
@@ -159,41 +84,9 @@ namespace AiCup2019
             }
 
             //////////////////////////////
-
             UnitAction action = new UnitAction();
-            Moves move = Moves.Right;
-
-            if (_me.Health < game.Properties.UnitMaxHealth && _me.Health < _targetEnemy.Health)
-            {
-                LootBox? nearestHealth = null;
-                foreach (var health in _healthLootBoxes)
-                {
-                    if (!nearestHealth.HasValue ||
-                        DistanceSqr(_me.Position, health.Position) <
-                        DistanceSqr(_me.Position, nearestHealth.Value.Position) &&
-                        DistanceSqr(_targetEnemy.Position, health.Position) >
-                        DistanceSqr(_me.Position, health.Position))
-                    {
-                        nearestHealth = health;
-                    }
-                }
-
-                if (nearestHealth != null)
-                {
-                    var bestMoves = GetMove(_me.Position, nearestHealth.Value.Position, 0, 0);
-                    move = bestMoves.Count != 0 ? bestMoves[0] : Moves.Right;
-                }
-                else
-                {
-                    var bestMoves = GetMove(_me.Position, _targetEnemy.Position, 0, 0);
-                    move = bestMoves.Count != 0 ? bestMoves[0] : Moves.Right;
-                }
-            }
-            else
-            {
-                var bestMoves = GetMove(_me.Position, _targetEnemy.Position, 0, 0);
-                move = bestMoves.Count != 0 ? bestMoves[0] : Moves.Right;
-            }
+            var bestMoves = GetMove(_me.Position, _me.JumpState, 0, 0);
+            var move = bestMoves.Count != 0 && bestMoves.Count < 180 ? bestMoves[0] : Moves.UpLeft;
 
             action.Jump = move.HasFlag(Moves.Up);
             action.JumpDown = move.HasFlag(Moves.Down);
@@ -206,16 +99,14 @@ namespace AiCup2019
                 action.Velocity = -_properties.UnitMaxHorizontalSpeed;
             }
 
-            action.Aim = new Vec2Double(_targetEnemy.Position.X - _me.Position.X, _targetEnemy.Position.Y - _me.Position.Y);
-            action.Shoot = IsPossibleShoot(_me.Position, _targetEnemy.Position);
-            
-            if(!action.Shoot && _otherEnemy != null)
+            foreach (var enemy in _enemies)
             {
-                bool isPossibleShoot = IsPossibleShoot(_me.Position, _otherEnemy.Value.Position);
+                var isPossibleShoot = IsPossibleShoot(_me.Position, enemy.Position);
                 if (isPossibleShoot)
                 {
-                    action.Aim = new Vec2Double(_otherEnemy.Value.Position.X - _me.Position.X, _otherEnemy.Value.Position.Y - _me.Position.Y);
+                    action.Aim = new Vec2Double(enemy.Position.X - _me.Position.X, enemy.Position.Y - _me.Position.Y);
                     action.Shoot = true;
+                    break;
                 }
             }
 
@@ -225,48 +116,62 @@ namespace AiCup2019
             return action;
         }
 
-        private static List<Moves> GetMove(Vec2Double mePos, Vec2Double targetPos, int tile, int directionChanges)
+        private static List<Moves> GetMove(Vec2Double mePos, JumpState jumpState, int tick, int directionChanges)
         {
             var bestMoves = new List<Moves>();
             foreach (Moves move in Enum.GetValues(typeof(Moves)))
             {
-                if (!CanMove(mePos, move))
-                {
-                    continue;
-                }
-
                 double x = mePos.X;
                 double y = mePos.Y;
                 bool isTerminate = false;
                 var moves = new List<Moves>();
+                var moveJumpState = jumpState;
 
-                for (int t = 0; t < MaxSimulatedTiles; t++)
+                if (move.HasFlag(Moves.Up) &&
+                    GetTile(x - _properties.UnitSize.X / 2, y) != Tile.Ladder &&
+                    GetTile(x + _properties.UnitSize.X / 2, y) != Tile.Ladder &&
+                    (!moveJumpState.CanJump || moveJumpState.MaxTime <= 0))
+                {
+                    continue;
+                }
+
+                for (int t = tick; t < MaxSimulatedTicks; t++)
                 {
                     double prevX = x;
                     double prevY = y;
 
                     if (move.HasFlag(Moves.Up))
                     {
-                        y += _properties.UnitJumpSpeed / 60;
+                        y += _properties.UnitJumpSpeed / TicksInSec;
+                        moveJumpState.MaxTime -= (double)1 / TicksInSec;
                     }
 
                     if (move.HasFlag(Moves.Down))
                     {
-                        y -= _properties.UnitFallSpeed / 60;
+                        y -= _properties.UnitFallSpeed / TicksInSec;
                     }
 
                     if (move.HasFlag(Moves.Left))
                     {
-                        x -= _properties.UnitMaxHorizontalSpeed / 60;
+                        x -= _properties.UnitMaxHorizontalSpeed / TicksInSec;
                     }
 
                     if (move.HasFlag(Moves.Right))
                     {
-                        x += _properties.UnitMaxHorizontalSpeed / 60;
+                        x += _properties.UnitMaxHorizontalSpeed / TicksInSec;
                     }
 
-                    var newMePos = new Vec2Double(x, y);
-                    if (!CanMove(newMePos, move))
+                    var upY = y + _properties.UnitSize.Y;
+                    var leftX = x - _properties.UnitSize.X / 2;
+                    var rightX = x + _properties.UnitSize.X / 2;
+                    if (GetTile(leftX, upY) == Tile.Wall ||
+                        GetTile(rightX, upY) == Tile.Wall ||
+                        GetTile(leftX, y) == Tile.Wall ||
+                        GetTile(rightX, y) == Tile.Wall ||
+                        (move.HasFlag(Moves.Up) &&
+                         GetTile(leftX, y) != Tile.Ladder && 
+                         GetTile(rightX, y) != Tile.Ladder &&
+                         (!moveJumpState.CanJump || moveJumpState.MaxTime <= 0)))
                     {
                         if (directionChanges >= MaxDirectionChanges)
                         {
@@ -275,8 +180,10 @@ namespace AiCup2019
                         }
 
                         var newPos = new Vec2Double(prevX, prevY);
+                        bool onGround = OnGround(prevX, prevY);
+                        var newJumpState = new JumpState(onGround, _properties.UnitJumpSpeed, _properties.UnitJumpTime, true);
                         int newDirectionChanges = directionChanges + 1;
-                        var newMoves = GetMove(newPos, targetPos, t, newDirectionChanges);
+                        var newMoves = GetMove(newPos, newJumpState, t, newDirectionChanges);
                         if (newMoves.Count == 0)
                         {
                             isTerminate = true;
@@ -294,11 +201,51 @@ namespace AiCup2019
                         break;
                     }
 
-                    if (Math.Abs(targetPos.X - newMePos.X) < 0.2 &&
-                        Math.Abs(targetPos.Y - newMePos.Y) < 0.2)
+                    var newMePos = new Vec2Double(x, y);
+                    if (_me.Weapon == null)
                     {
-                        break;
+                        if (_weaponLootBoxes.Any(lootBox => Math.Abs(lootBox.Position.X - newMePos.X) < lootBox.Size.X / 4 &&
+                                                            Math.Abs(lootBox.Position.Y - newMePos.Y) < lootBox.Size.Y / 4))
+                        {
+                            break;
+                        }
                     }
+
+                    if (_me.Health < _properties.UnitMaxHealth && _healthLootBoxes.Length > 0)
+                    {
+                        if (_healthLootBoxes.Any(lootBox => Math.Abs(lootBox.Position.X - newMePos.X) < lootBox.Size.X / 4 &&
+                                                            Math.Abs(lootBox.Position.Y - newMePos.Y) < lootBox.Size.Y / 4))
+                        {
+                            break;
+                        }
+                    }
+                    else if (_me.Weapon != null)
+                    {
+                        bool end = false;
+                        foreach (var enemy in _enemies)
+                        {
+                            var isPossibleShoot = IsPossibleShoot(_me.Position, enemy.Position);
+                            if (isPossibleShoot)
+                            {
+                                end = true;
+                                break;
+                            }
+                        }
+
+                        if (end)
+                        {
+                            break;
+                        }
+                    }
+
+                    //foreach (var bulletNodes in bulletMap)
+                    //{
+                    //    if (bulletNodes.Count <= t)
+                    //    {
+                    //        break;
+                    //    }
+                    //}
+
                 }
 
                 if (isTerminate)
@@ -314,60 +261,6 @@ namespace AiCup2019
 
             return bestMoves;
         }
-
-        private static bool CanMove(Vec2Double mePos, Moves move)
-        {
-            var upY = mePos.Y + _properties.UnitSize.Y;
-            var leftX = mePos.X - _properties.UnitSize.X / 2;
-            var rightX = mePos.X + _properties.UnitSize.X / 2;
-
-            if (move.HasFlag(Moves.Up) &&
-                (GetTile(leftX, mePos.Y + 2) == Tile.Wall ||
-                 GetTile(rightX, mePos.Y + 2) == Tile.Wall))
-            {
-                return false;
-            }
-
-            if (move.HasFlag(Moves.Down) &&
-                (GetTile(leftX, mePos.Y - 0.2) == Tile.Wall ||
-                 GetTile(rightX, mePos.Y - 0.2) == Tile.Wall))
-            {
-                return false;
-            }
-
-            if (move.HasFlag(Moves.Left) &&
-                (GetTile(mePos.X - 1, upY) == Tile.Wall ||
-                 GetTile(mePos.X - 1, mePos.Y) == Tile.Wall))
-            {
-                return false;
-            }
-
-            if (move.HasFlag(Moves.Right) &&
-                (GetTile(mePos.X + 1, upY) == Tile.Wall ||
-                 GetTile(mePos.X + 1, mePos.Y) == Tile.Wall))
-            {
-                return false;
-            }
-
-            if (move.HasFlag(Moves.Up) && 
-                GetTile(mePos.X, mePos.Y) != Tile.Ladder)
-            {
-                for (int i = (int)mePos.Y; i >= 0 && i > mePos.Y - 5; i--)
-                {
-                    var tile = GetTile(mePos.X, i);
-                    if (tile == Tile.JumpPad || 
-                        tile == Tile.Platform || 
-                        tile == Tile.Wall)
-                    {
-                        return true;
-                    }
-                }
-                return false;
-            }
-
-            return true;
-        }
-
 
         private static bool IsPossibleShoot(Vec2Double mePos, Vec2Double enemyPos)
         {
@@ -410,7 +303,7 @@ namespace AiCup2019
 
         private static bool IsVisible(Vec2Double mePos, Vec2Double enemyPos)
         {
-            const double step = 0.1;
+            const double step = 0.5;
 
             if (Math.Abs(mePos.X - enemyPos.X) >
                 Math.Abs(mePos.Y - enemyPos.Y))
@@ -483,8 +376,8 @@ namespace AiCup2019
         private static bool OnGround(double x, double y)
         {
             int tileY = (int)y;
-            var tile = GetTile(x, y - 1);
-            if (y - tileY < 0.02 && (tile == Tile.Wall || tile == Tile.Platform))
+            var tile = GetTile(x, y - 0.02);
+            if (y - tileY < 0.02 && (tile == Tile.Wall || tile == Tile.Platform || tile == Tile.JumpPad))
             {
                 return true;
             }
@@ -512,18 +405,6 @@ namespace AiCup2019
             return Math.Sqrt(v.X * v.X + v.Y * v.Y);
         }
 
-        public Vec2Double Normalize(Vec2Double v)
-        {
-            var length = LengthVec(v);
-            if (Math.Abs(length) < 0.01)
-            {
-                return new Vec2Double();
-            }
-
-            double invLen = 1.0 / length;
-            return new Vec2Double(v.X * invLen, v.Y * invLen);
-        }
-
         public class BulletNode
         {
             public Vec2Double Pos { get; set; }
@@ -534,14 +415,14 @@ namespace AiCup2019
         [Flags]
         public enum Moves : byte
         {
-            Up = 0b0000_0001,
-            Down = 0b0000_0010,
             Left = 0b0000_0100,
             Right = 0b0000_1000,
-            UpLeft = 0b0000_0101,
-            UpRight = 0b0000_1001,
+            Down = 0b0000_0010,
             DownLeft = 0b0000_0110,
-            DownRight = 0b0000_1010
+            DownRight = 0b0000_1010,
+            Up = 0b0000_0001,
+            UpLeft = 0b0000_0101,
+            UpRight = 0b0000_1001
         }
     }
 }
